@@ -1,0 +1,7 @@
+src/thread/build/
+src/misc/
+*.swp
+*.o
+*.out
+*.bin
+*.exe
