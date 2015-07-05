@@ -7,6 +7,7 @@
 #include "threads/interrupt.h"
 #include "threads/synch.h"
 #include "threads/thread.h"
+#include "list.h"
   
 /* See [8254] for hardware details of the 8254 timer chip. */
 
@@ -16,6 +17,9 @@
 #if TIMER_FREQ > 1000
 #error TIMER_FREQ <= 1000 recommended
 #endif
+
+/* Ordered list of sleeping threads. Sorted by thread->wakeup_at. */
+static struct list sleeping_threads;
 
 /* Number of timer ticks since OS booted. */
 static int64_t ticks;
@@ -29,6 +33,9 @@ static bool too_many_loops (unsigned loops);
 static void busy_wait (int64_t loops);
 static void real_time_sleep (int64_t num, int32_t denom);
 static void real_time_delay (int64_t num, int32_t denom);
+static bool compare_wakeup_at (const struct list_elem *a, 
+                               const struct list_elem *b,
+                               void *aux);
 
 /* Sets up the timer to interrupt TIMER_FREQ times per second,
    and registers the corresponding interrupt. */
@@ -37,6 +44,7 @@ timer_init (void)
 {
   pit_configure_channel (0, 2, TIMER_FREQ);
   intr_register_ext (0x20, timer_interrupt, "8254 Timer");
+  list_init (&sleeping_threads);
 }
 
 /* Calibrates loops_per_tick, used to implement brief delays. */
@@ -89,11 +97,16 @@ timer_elapsed (int64_t then)
 void
 timer_sleep (int64_t ticks) 
 {
-  int64_t start = timer_ticks ();
+  enum intr_level old_level;
 
   ASSERT (intr_get_level () == INTR_ON);
-  while (timer_elapsed (start) < ticks) 
-    thread_yield ();
+  
+  old_level = intr_disable ();
+  thread_current ()->wakeup_at = ticks + timer_ticks();
+  list_insert_ordered (&sleeping_threads, &thread_current ()->elem,
+                       &compare_wakeup_at, NULL);
+  thread_block ();
+  intr_set_level(old_level);
 }
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be
@@ -170,7 +183,20 @@ timer_print_stats (void)
 static void
 timer_interrupt (struct intr_frame *args UNUSED)
 {
+  struct list_elem *e = list_begin (&sleeping_threads);
+  struct thread *t = list_entry(e, struct thread, elem);
   ticks++;
+
+  while (e != list_end (&sleeping_threads) && t->wakeup_at <= ticks)
+    {
+      list_pop_front (&sleeping_threads);
+      
+      ASSERT (t->status == THREAD_BLOCKED);
+
+      thread_unblock (t);
+      e = list_begin (&sleeping_threads);
+      t = list_entry (e, struct thread, elem); 
+    }
   thread_tick ();
 }
 
@@ -243,4 +269,16 @@ real_time_delay (int64_t num, int32_t denom)
      the possibility of overflow. */
   ASSERT (denom % 1000 == 0);
   busy_wait (loops_per_tick * num / 1000 * TIMER_FREQ / (denom / 1000)); 
+}
+
+/* Comparator function for ordered insertion in sleeping_threads. */
+static bool
+compare_wakeup_at (const struct list_elem *a, const struct list_elem *b,
+                   void *aux UNUSED)
+{
+  ASSERT (a != NULL);
+  ASSERT (b != NULL);
+
+  return ( (list_entry (a, struct thread, elem))->wakeup_at <
+           (list_entry (b, struct thread, elem))->wakeup_at);
 }
