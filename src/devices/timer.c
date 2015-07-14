@@ -271,7 +271,8 @@ real_time_delay (int64_t num, int32_t denom)
   busy_wait (loops_per_tick * num / 1000 * TIMER_FREQ / (denom / 1000)); 
 }
 
-/* Comparator function for ordered insertion in sleeping_threads. */
+/* Comparator function for ordered insertion in sleeping_threads. Returns
+   true if a's wakeup_at is smaller than b's wakeup_at, else false. */
 static bool
 compare_wakeup_at (const struct list_elem *a, const struct list_elem *b,
                    void *aux UNUSED)
@@ -279,6 +280,6 @@ compare_wakeup_at (const struct list_elem *a, const struct list_elem *b,
   ASSERT (a != NULL);
   ASSERT (b != NULL);
 
-  return ( (list_entry (a, struct thread, elem))->wakeup_at <
-           (list_entry (b, struct thread, elem))->wakeup_at);
+  return (list_entry (a, struct thread, elem)->wakeup_at <
+          list_entry (b, struct thread, elem)->wakeup_at);
 }

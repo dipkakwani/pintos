@@ -88,7 +88,13 @@ struct thread
     char name[16];                      /* Name (for debugging purposes). */
     uint8_t *stack;                     /* Saved stack pointer. */
     int priority;                       /* Priority. */
+    int base_priority;                  /* Priority without any donation. */
+    bool has_donation;                  /* Has any priority donation? */
     int64_t wakeup_at;                  /* When to wake up. */
+    struct lock *lock_to_acquire;       /* Next lock to acquire with 
+                                           donation. */
+    struct list received_priority;      /* List of received donated 
+                                           priorities. */
     struct list_elem allelem;           /* List element for all threads list. */
 
     /* Shared between thread.c and synch.c. */
@@ -101,6 +107,16 @@ struct thread
 
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
+  };
+
+/* One element in received_priority list. If a thread has received multiple
+   donations, it would help in choosing the thread with the highest priority
+   when the current priority is being resotred. */
+struct priority_elem
+  {
+    int priority;
+    struct list_elem elem;
+    struct lock *lock;
   };
 
 /* If false (default), use round-robin scheduler.
@@ -116,6 +132,8 @@ void thread_print_stats (void);
 
 typedef void thread_func (void *aux);
 tid_t thread_create (const char *name, int priority, thread_func *, void *);
+bool compare_thread_priority (const struct list_elem *a, 
+                              const struct list_elem *b, void *aux);
 
 void thread_block (void);
 void thread_unblock (struct thread *);
@@ -126,6 +144,7 @@ const char *thread_name (void);
 
 void thread_exit (void) NO_RETURN;
 void thread_yield (void);
+void thread_move_to_front (struct thread *t);
 
 /* Performs some operation on thread t, given auxiliary data AUX. */
 typedef void thread_action_func (struct thread *t, void *aux);

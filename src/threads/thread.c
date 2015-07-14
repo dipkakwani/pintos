@@ -209,6 +209,10 @@ thread_create (const char *name, int priority,
   /* Add to run queue. */
   thread_unblock (t);
 
+  /* If a higher priority thread is created then the currently running thread
+     yields.*/
+  if (thread_get_priority () < t->priority)
+    thread_yield ();
   return tid;
 }
 
@@ -245,7 +249,8 @@ thread_unblock (struct thread *t)
 
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
-  list_push_back (&ready_list, &t->elem);
+  list_insert_ordered (&ready_list, &t->elem,
+                       &compare_thread_priority, NULL);
   t->status = THREAD_READY;
   intr_set_level (old_level);
 }
@@ -316,10 +321,22 @@ thread_yield (void)
 
   old_level = intr_disable ();
   if (cur != idle_thread) 
-    list_push_back (&ready_list, &cur->elem);
+    list_insert_ordered (&ready_list, &cur->elem, 
+                         &compare_thread_priority, NULL);
   cur->status = THREAD_READY;
   schedule ();
   intr_set_level (old_level);
+}
+
+/* Moves thread t to front of the ready list. Thread should already be in the
+   ready list that is, it should be in the ready state. */
+void
+thread_move_to_front (struct thread *t)
+{
+  ASSERT (t != NULL);
+  ASSERT (t->status == THREAD_READY);
+
+  list_move_to_front (&ready_list, &t->elem);
 }
 
 /* Invoke function 'func' on all threads, passing along 'aux'.
@@ -339,11 +356,19 @@ thread_foreach (thread_action_func *func, void *aux)
     }
 }
 
-/* Sets the current thread's priority to NEW_PRIORITY. */
+/* Sets the current thread's priority to NEW_PRIORITY. If the thread has 
+   received donated priority, its priority becomes the maximum of the donated
+   priority and the new_priority. */
 void
 thread_set_priority (int new_priority) 
 {
-  thread_current ()->priority = new_priority;
+  thread_current ()->base_priority = new_priority;
+  if (!thread_current ()->has_donation || 
+      thread_current ()->priority < new_priority)
+  {
+    thread_current ()->priority = new_priority;
+  }
+  thread_yield ();
 }
 
 /* Returns the current thread's priority. */
@@ -468,6 +493,9 @@ init_thread (struct thread *t, const char *name, int priority)
   strlcpy (t->name, name, sizeof t->name);
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
+  t->base_priority = priority;
+  t->lock_to_acquire = NULL;
+  list_init (&t->received_priority);
   t->magic = THREAD_MAGIC;
   list_push_back (&all_list, &t->allelem);
 }
@@ -580,6 +608,19 @@ allocate_tid (void)
   lock_release (&tid_lock);
 
   return tid;
+}
+
+/* Compares the priorities of two threads. Returns true if a's priority is
+   greater than b's priority, else false.*/
+bool
+compare_thread_priority (const struct list_elem *a, const struct list_elem *b,
+                         void *aux UNUSED)
+{
+  ASSERT (a != NULL);
+  ASSERT (b != NULL);
+
+  return (list_entry (a, struct thread, elem)->priority >
+          list_entry (b, struct thread, elem)->priority);
 }
 
 /* Offset of `stack' member within `struct thread'.

@@ -336,6 +336,17 @@ list_reverse (struct list *list)
     }
 }
 
+/* Moves the list element ELEM to front of the list. */
+void
+list_move_to_front (struct list *list, struct list_elem *elem)
+{
+  ASSERT (list != NULL);
+  ASSERT (is_interior (elem));
+
+  list_remove (elem);
+  list_push_front (list, elem);
+}
+
 /* Returns true only if the list elements A through B (exclusive)
    are in order according to LESS given auxiliary data AUX. */
 static bool
