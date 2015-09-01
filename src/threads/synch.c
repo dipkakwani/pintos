@@ -284,14 +284,9 @@ lock_held_by_current_thread (const struct lock *lock)
 void
 donate_priority (struct lock *lock)
 {
-  struct thread *t = lock->holder, *nested_t;
+  struct thread *t = lock->holder, *nested_thread;
   struct priority_elem *p = malloc (sizeof (struct priority_elem));
   int nest_depth;
-
-  /* If lock and the lock holder doesn't have any donation, only then update
-     base priority. */
-  if (!lock->holder->has_donation && !lock->has_donation)
-    t->base_priority = t->priority;
 
   /* Add it to received priority list of the current thread. */
   p->priority = thread_get_priority ();
@@ -309,15 +304,15 @@ donate_priority (struct lock *lock)
      fails or a maximum of 8 steps are reached.  */
   if (t->lock_to_acquire)
   {
-    nested_t = t;
+    nested_thread = t;
     for (nest_depth = 0; nest_depth < 8; nest_depth++)
     {
-      nested_t = nested_t->lock_to_acquire->holder;
-      nested_t->priority = thread_get_priority ();
-      if (!nested_t->lock_to_acquire)
+      nested_thread = nested_thread->lock_to_acquire->holder;
+      nested_thread->priority = thread_get_priority ();
+      if (!nested_thread->lock_to_acquire)
         break;
     }
-    t = nested_t;
+    t = nested_thread;
   }
 
   /* If holder thread is in ready state, move it to the front of the ready
